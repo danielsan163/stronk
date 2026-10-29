@@ -125,7 +125,7 @@ input.field,select.field,textarea.field{width:100%;background:var(--sunk);border
 
 /* tabs */
 nav.tabs{position:fixed;left:0;right:0;bottom:0;z-index:7;background:var(--surface);border-top:1px solid var(--line);padding:0 max(8px,env(safe-area-inset-right,0px)) env(safe-area-inset-bottom,0px) max(8px,env(safe-area-inset-left,0px))}
-nav.tabs .inner{max-width:560px;margin:0 auto;display:grid;grid-template-columns:repeat(4,1fr);height:var(--tabh)}
+nav.tabs .inner{max-width:560px;margin:0 auto;display:grid;grid-template-columns:repeat(5,1fr);height:var(--tabh)}
 nav.tabs button{border:0;background:transparent;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;color:var(--ink-3);font-size:12px;font-weight:600;letter-spacing:.03em}
 nav.tabs button svg{width:24px;height:24px}
 nav.tabs button[aria-current="page"]{color:var(--accent)}
@@ -162,6 +162,12 @@ table.log td.r,table.log th.r{text-align:right}
 
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(var(--tabh) + 80px + env(safe-area-inset-bottom,0px));z-index:9;background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:999px;font-weight:600;font-size:14px;max-width:calc(100% - 32px);text-align:center}
 .reorder{display:flex;gap:2px}
+.shot{display:grid;grid-template-columns:1fr auto;gap:4px 10px;padding:12px 0;border-top:1px solid var(--line)}
+.shot:first-child{border-top:0;padding-top:0}
+.shot .dose{font-family:var(--display);font-weight:700;font-size:22px;line-height:1}
+.shot .notes{grid-column:1/-1;font-size:14px;color:var(--ink-2);white-space:pre-wrap;overflow-wrap:anywhere}
+.shot .acts{grid-column:1/-1;display:flex;gap:16px;align-items:center}
+textarea.field{min-height:84px;resize:vertical;line-height:1.4}
 .redit{display:grid;grid-template-columns:1fr;gap:8px;padding:10px 0;border-top:1px solid var(--line)}
 .redit .r2{display:grid;grid-template-columns:1.4fr 1fr 1fr;gap:8px}
 </style>
@@ -187,6 +193,7 @@ table.log td.r,table.log th.r{text-align:right}
     <button data-tab="history"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="4" y="4" width="16" height="17" rx="2"/><path d="M8 2v4M16 2v4M4 10h16"/></svg>History</button>
     <button data-tab="progress"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 20h18M5 16l5-5 4 3 6-7"/></svg>Progress</button>
     <button data-tab="body"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="16" rx="4"/><path d="M9 9a3 3 0 0 1 6 0M12 9l1.5-2"/></svg>Body</button>
+    <button data-tab="shots"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 2l4 4M20 4l-4 4M17 7l-9 9-4 1 1-4 9-9zM11 7l1.5 1.5M8.5 9.5 10 11M2 22l3-3"/></svg>Shots</button>
   </div>
 </nav>
 
@@ -196,6 +203,7 @@ const EQUIP = {barbell:"Barbell", dumbbell:"Dumbbell", machine:"Machine", cable:
 const INC = 5, BAR = 45;
 const S = {
   routines: [], workouts: [], bodyweight: [], active: null, activeStamp: 0,
+  injections: [], editShot: null,
   tab: "workout", view: "start", editRoutine: null, confirm: null, lift: null,
   addingEx: false, mode: "loading", timer: null, pendingRender: false
 };
@@ -243,7 +251,7 @@ const LKEY = "stronk-local-v1", BKEY = "stronk-last-backup";
 let storageOK = true;
 function localSave() {
   try {
-    localStorage.setItem(LKEY, JSON.stringify({routines:S.routines, workouts:S.workouts, bodyweight:S.bodyweight, active:S.active}));
+    localStorage.setItem(LKEY, JSON.stringify({routines:S.routines, workouts:S.workouts, bodyweight:S.bodyweight, injections:S.injections, active:S.active}));
     if (!storageOK) { storageOK = true; render(); }
   } catch (e) {
     if (storageOK) { storageOK = false; toast("Couldn't save on this phone. Export a backup now."); render(); }
@@ -264,7 +272,7 @@ function flushActive() { clearTimeout(activeTimer); activeTimer = null; localSav
 function initStore() {
   let d = null;
   try { const raw = localStorage.getItem(LKEY); d = raw ? JSON.parse(raw) : null; } catch { storageOK = false; }
-  if (d) Object.assign(S, {routines:d.routines||[], workouts:d.workouts||[], bodyweight:d.bodyweight||[], active:d.active||null});
+  if (d) Object.assign(S, {routines:d.routines||[], workouts:d.workouts||[], bodyweight:d.bodyweight||[], injections:d.injections||[], active:d.active||null});
   else {
     const seed = JSON.parse(document.getElementById("seed").textContent);
     Object.assign(S, {routines:seed.routines, workouts:seed.workouts, bodyweight:[]});
@@ -280,7 +288,7 @@ function lastBackup() { try { return +localStorage.getItem(BKEY) || 0; } catch {
 function daysSince(ms) { return Math.floor((Date.now() - ms) / 864e5); }
 async function exportBackup() {
   const name = `stronk-backup-${today()}.json`;
-  const text = JSON.stringify({app:"stronk", version:1, exportedAt:new Date().toISOString(), routines:S.routines, workouts:S.workouts, bodyweight:S.bodyweight}, null, 1);
+  const text = JSON.stringify({app:"stronk", version:1, exportedAt:new Date().toISOString(), routines:S.routines, workouts:S.workouts, bodyweight:S.bodyweight, injections:S.injections}, null, 1);
   const blob = new Blob([text], {type:"application/json"});
   try {
     const file = new File([blob], name, {type:"application/json"});
@@ -304,7 +312,7 @@ function readImport(file) {
     try {
       const d = JSON.parse(r.result);
       if (d.app !== "stronk" || !Array.isArray(d.workouts)) throw new Error("not a backup");
-      S.importData = {routines:d.routines||[], workouts:d.workouts||[], bodyweight:d.bodyweight||[]};
+      S.importData = {routines:d.routines||[], workouts:d.workouts||[], bodyweight:d.bodyweight||[], injections:d.injections||[]};
       S.tab = "workout"; render();
       document.getElementById("data-card")?.scrollIntoView({block:"center"});
     } catch { toast("That file isn't a Stronk backup."); }
@@ -313,7 +321,7 @@ function readImport(file) {
 }
 function applyImport() {
   const d = S.importData; if (!d) return;
-  for (const col of ["routines", "workouts", "bodyweight"]) {
+  for (const col of ["routines", "workouts", "bodyweight", "injections"]) {
     const byId = new Map(S[col].map(x => [x.id, x]));
     for (const x of d[col]) if (x && x.id) byId.set(x.id, x);
     S[col] = [...byId.values()];
@@ -533,6 +541,7 @@ function render() {
   else if (S.tab === "history") v.innerHTML = viewHistory();
   else if (S.tab === "progress") { v.innerHTML = viewProgress(); drawLift(); }
   else if (S.tab === "body") { v.innerHTML = viewBody(); drawBody(); }
+  else if (S.tab === "shots") v.innerHTML = viewShots();
   renderTimer();
 }
 
@@ -571,7 +580,7 @@ function dataCard() {
     <div class="card stack">
       <div class="muted" style="font-size:14px">Your log is saved on this phone only. Export a backup every week or two and keep it in Files or iCloud Drive, so a new phone or cleared Safari data doesn't wipe it.</div>
       <div class="row between"><span class="label">Last backup</span><span class="num ${stale ? "bad" : "good"}" style="font-weight:600">${lb ? (days === 0 ? "Today" : days === 1 ? "Yesterday" : `${days} days ago`) : "Never"}</span></div>
-      ${imp ? `<div class="confirm">Add ${imp.workouts.length} workout${imp.workouts.length === 1 ? "" : "s"}, ${imp.bodyweight.length} weigh-in${imp.bodyweight.length === 1 ? "" : "s"} and ${imp.routines.length} routine${imp.routines.length === 1 ? "" : "s"} from this backup? Matching entries are replaced with the backup's copy. <button class="btn small primary" data-act="import-apply">Import</button><button class="btn small" data-act="import-cancel">Cancel</button></div>` : ""}
+      ${imp ? `<div class="confirm">Add ${imp.workouts.length} workout${imp.workouts.length === 1 ? "" : "s"}, ${imp.bodyweight.length} weigh-in${imp.bodyweight.length === 1 ? "" : "s"}, ${imp.injections.length} shot${imp.injections.length === 1 ? "" : "s"} and ${imp.routines.length} routine${imp.routines.length === 1 ? "" : "s"} from this backup? Matching entries are replaced with the backup's copy. <button class="btn small primary" data-act="import-apply">Import</button><button class="btn small" data-act="import-cancel">Cancel</button></div>` : ""}
       <div class="row" style="flex-wrap:nowrap"><button class="btn primary" style="flex:1" data-act="export">Export backup</button><button class="btn" style="flex:1" data-act="import">Import backup</button></div>
     </div>
   </div>`;
@@ -800,6 +809,48 @@ function viewBody() {
       return `<tr><td>${fmtLong(b.date)}</td><td class="r">${fmtW(b.weight)} lb</td><td class="r ${d < 0 ? "good" : d > 0 ? "bad" : "muted"}">${d == null ? "" : (d > 0 ? "+" : "") + fmtW(d)}</td><td class="r">${S.confirm === `delbw-${b.id}` ? `<button class="btn small danger" data-act="delbw" data-id="${esc(b.id)}">Delete</button>` : `<button class="iconbtn" data-act="ask" data-key="delbw-${esc(b.id)}" aria-label="Delete weigh-in">✕</button>`}</td></tr>`; }).join("")}
   </tbody></table></div></div>` : ""}`;
 }
+const fmtMg = n => n == null ? "–" : String(Math.round(n * 1000) / 1000);
+const sortedShots = () => [...S.injections].sort((a, b) => b.date.localeCompare(a.date) || (b.savedAt || 0) - (a.savedAt || 0));
+const ago = date => { const d = Math.round((parseDate(today()) - parseDate(date)) / 864e5); return d <= 0 ? (d === 0 ? "Today" : fmtShort(date)) : d === 1 ? "Yesterday" : `${d} days ago`; };
+function viewShots() {
+  const xs = sortedShots(), last = xs[0];
+  const ed = S.editShot ? S.injections.find(x => x.id === S.editShot) : null;
+  return `<div class="section">
+    <h2>Retatrutide</h2>
+    <div class="card stack">
+      ${ed ? `<div class="label" style="color:var(--accent)">Editing ${fmtLong(ed.date)}</div>` : ""}
+      <div class="row" style="flex-wrap:nowrap;align-items:flex-end">
+        <div class="fieldwrap"><span class="label">Date</span><input class="field" type="date" id="shot-date" value="${esc(ed ? ed.date : today())}"></div>
+        <div class="fieldwrap"><span class="label">Dose · mg</span><input class="field num" id="shot-dose" inputmode="decimal" value="${ed ? fmtMg(ed.dose) : last ? fmtMg(last.dose) : ""}" placeholder="e.g. 2"></div>
+      </div>
+      <div class="fieldwrap"><span class="label">Notes</span><textarea class="field" id="shot-notes" placeholder="e.g. Reconstituted new vial, new side effects">${esc(ed ? ed.notes : "")}</textarea></div>
+      <div class="row" style="flex-wrap:nowrap"><button class="btn primary" style="flex:1" data-act="shot-save">${ed ? "Save changes" : "Log shot"}</button>${ed ? `<button class="btn ghost" data-act="shot-cancel">Cancel</button>` : ""}</div>
+    </div>
+  </div>
+  <div class="section">
+    <div class="card">
+      <div class="stats">
+        <div class="stat"><span class="label">Last shot</span><span class="v num" style="font-size:22px">${last ? ago(last.date) : "–"}</span></div>
+        <div class="stat"><span class="label">Current dose</span><span class="v num">${last ? fmtMg(last.dose) : "–"}<small>mg</small></span></div>
+        <div class="stat"><span class="label">Shots logged</span><span class="v num">${xs.length}</span></div>
+      </div>
+    </div>
+  </div>
+  <div class="section">
+    <h2>Log</h2>
+    ${xs.length ? `<div class="card">${xs.map((x, i) => {
+      const prev = xs[i + 1], diff = prev ? x.dose - prev.dose : 0;
+      return `<div class="shot">
+        <div class="stack" style="gap:2px"><span style="font-weight:600">${fmtLong(x.date)}</span><span class="muted" style="font-size:13px">${ago(x.date)}</span></div>
+        <div class="stack" style="gap:4px;align-items:flex-end"><span class="dose num">${fmtMg(x.dose)}<small class="muted" style="font-size:14px;margin-left:2px">mg</small></span>${diff ? `<span class="pill accent">${diff > 0 ? "Up" : "Down"} from ${fmtMg(prev.dose)}</span>` : ""}</div>
+        ${x.notes ? `<div class="notes">${esc(x.notes)}</div>` : ""}
+        <div class="acts">${S.confirm === `delshot-${x.id}`
+          ? `<span class="confirm" style="flex:1">Delete this shot? <button class="btn small danger" data-act="delshot" data-id="${esc(x.id)}">Delete</button><button class="btn small" data-act="ask" data-key="">Keep</button></span>`
+          : `<button class="linkish" data-act="shot-edit" data-id="${esc(x.id)}">Edit</button><button class="linkish" style="color:var(--ink-3)" data-act="ask" data-key="delshot-${esc(x.id)}">Delete</button>`}</div>
+      </div>`;
+    }).join("")}</div>` : `<div class="chart-empty">Your shots show up here once you log the first one.</div>`}
+  </div>`;
+}
 function drawBody() {
   const bw = [...S.bodyweight].sort((a, b) => a.date.localeCompare(b.date));
   drawChart($("#bw-chart"), bw.map(b => ({t: parseDate(b.date).getTime(), y: b.weight, date: b.date})), {
@@ -876,6 +927,17 @@ document.addEventListener("click", ev => {
       break;
     }
     case "delbw": delDoc("bodyweight", b.dataset.id); S.confirm = null; render(); break;
+    case "shot-save": {
+      const dose = num($("#shot-dose").value), d = $("#shot-date").value || today(), notes = $("#shot-notes").value.trim();
+      if (dose == null || dose <= 0) { $("#shot-dose").focus(); toast("Enter the dose in mg"); break; }
+      const id = S.editShot || uid("i"), prev = S.injections.find(x => x.id === id);
+      S.editShot = null;
+      setDoc("injections", id, {date: d, dose, notes, savedAt: prev ? prev.savedAt || Date.now() : Date.now()});
+      toast(prev ? "Shot updated" : `Logged ${fmtMg(dose)} mg for ${fmtShort(d)}`); break;
+    }
+    case "shot-edit": S.editShot = b.dataset.id; S.confirm = null; render(); window.scrollTo({top: 0, behavior: "smooth"}); break;
+    case "shot-cancel": S.editShot = null; render(); break;
+    case "delshot": if (S.editShot === b.dataset.id) S.editShot = null; delDoc("injections", b.dataset.id); S.confirm = null; render(); toast("Shot deleted"); break;
     case "r-new": S.editRoutine = {id: uid("r"), isNew: true, name: "", order: S.routines.length, exercises: [{name: "", equip: "machine", sets: 3, reps: 10, perSide: false}]}; render(); break;
     case "r-edit": { const r = S.routines.find(r => r.id === b.dataset.id); S.editRoutine = {...clone(r), isNew: false}; S.confirm = null; render(); break; }
     case "r-cancel": S.editRoutine = null; S.confirm = null; render(); break;
